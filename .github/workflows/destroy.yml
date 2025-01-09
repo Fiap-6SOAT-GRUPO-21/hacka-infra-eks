@@ -1,0 +1,121 @@
+name: "Terraform Destroy"
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  terraform-destroy:
+    name: "Terraform Destroy RDS and INFRA"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
+        shell: bash
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name hacka --region us-east-1
+
+      - name: Destroy Kubernetes Resources
+        run: |
+          kubectl delete deployments --all -n default
+          kubectl delete replicasets --all -n default
+          kubectl delete statefulsets --all -n default
+          kubectl delete services --all -n default
+          kubectl delete pods --all -n default
+          kubectl delete pvc --all -n default
+          kubectl delete hpa --all -n default
+          kubectl delete pv --all 
+          kubectl delete role --all
+          kubectl delete rolebinding --all
+          kubectl delete configmap --all
+
+      - name: Delete Lambda function if exists
+        run: |
+          if aws lambda get-function --function-name hacka-authorizer-lambda 2>/dev/null; then
+            echo "Lambda function exists, deleting..."
+            aws lambda delete-function --function-name hacka-authorizer-lambda
+          else
+            echo "Lambda function does not exist, skipping delete."
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      # Initialize Terraform with reconfigure flag for COGNITO
+      - name: Terraform Init COGNITO
+        run: terraform init -reconfigure -backend-config="bucket=${{ secrets.AWS_BUCKET_NAME }}" -backend-config="key=estado/terraformCOGNITO.tfstate" -backend-config="region=us-east-1"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Terraform Destroy COGNITO
+        run: terraform destroy -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      # Initialize Terraform with reconfigure flag for API GATEWAY
+      - name: Terraform Init API GATEWAY
+        run: terraform init -reconfigure -backend-config="bucket=${{ secrets.AWS_BUCKET_NAME }}" -backend-config="key=estado/terraformAPIGATEWAY.tfstate" -backend-config="region=us-east-1"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Terraform Destroy API GATEWAY
+        run: terraform destroy -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      # Initialize Terraform with reconfigure flag for RDS
+      - name: Terraform Init RDS
+        run: terraform init -reconfigure -backend-config="bucket=${{ secrets.AWS_BUCKET_NAME }}" -backend-config="key=estado/terraformRDS.tfstate" -backend-config="region=us-east-1"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Terraform Destroy RDS
+        run: terraform destroy -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      # Initialize Terraform with reconfigure flag for INFRA
+      - name: Terraform Init INFRA
+        run: terraform init -reconfigure -backend-config="bucket=${{ secrets.AWS_BUCKET_NAME }}" -backend-config="key=estado/terraformInfra.tfstate" -backend-config="region=us-east-1"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Terraform Destroy INFRA
+        run: terraform destroy -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
